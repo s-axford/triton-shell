@@ -9,7 +9,7 @@
 #include <string.h>
 
 char* prompt_user(char * buffer, size_t bufsize) {
-    write(1,"triton> ", 7);
+    write(1,"triton> ", 8);
     size_t chars = getline(&buffer, &bufsize, stdin);
     if ((buffer)[chars - 1] == '\n') {
         (buffer)[chars - 1] = '\0';
