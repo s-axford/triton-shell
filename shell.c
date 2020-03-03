@@ -52,7 +52,23 @@ int main(int argc, char *argv[])
 
         int buf_size = prompt_user(buf, max_buf_size);
 
-        char *c_buf = buf;              // copy of buf that can be iterated through
+        char *c_buf;              // copy of buf that can be iterated through
+        c_buf = (char *)calloc(buf_size, sizeof(char));
+        if (c_buf == NULL)
+        {
+            err(-1, "Unable to allocate buffer");
+        }
+        memcpy(c_buf, buf, buf_size);
+
+        char *com = strcat(buf, "\n");
+        if (write(his_fd, com, buf_size + 1) == -1)
+        {
+            err(-1, "Write to ~/.triton_history failed\n");
+        }
+
+        free(buf);
+
+        char *c_buf_p = c_buf;
         char *args[max_num_args];       // will store all argument strings
         int si_rows = 5;
         int section_info[max_num_args][si_rows]; // will store start and end indexes of args and relevant pid
@@ -156,11 +172,6 @@ int main(int argc, char *argv[])
             default:
             {
                 int status;
-                char *com = strcat(buf, "\n");
-                if (write(his_fd, com, buf_size + 1) == -1)
-                {
-                    err(-1, "Write to ~/.triton_history failed\n");
-                }
                 if (waitpid(child, &status, 0) == -1)
                 {
                     err(-1, "Failed to waitpid()");
@@ -181,7 +192,7 @@ int main(int argc, char *argv[])
             current_child += 1;
         }
         // free memory
-        free(buf);
+        free(c_buf_p);
         for (int i = 0; i < req_children; i++)
         {
             free(si[i]);
