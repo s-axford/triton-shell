@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
         c_buf = (char *)calloc(buf_size, sizeof(char));
         if (c_buf == NULL)
         {
-            err(-1, "Unable to allocate buffer");
+            err(-1, "Unable to allocate c_buffer");
         }
         memcpy(c_buf, buf, buf_size);
 
@@ -83,7 +83,6 @@ int main(int argc, char *argv[])
             if (strcmp(arg, "|") == 0) // pipe found
             {
                 args[n_args] = NULL; // swap '|' for NULL (to end execvp)
-                section_info[pipes][2] = n_args; // this NULL is the end index of the last section
                 n_args += 1;
                 pipes += 1; // there is a new section
                 section_info[pipes][1] = n_args; // next arg is the start of new section
@@ -94,7 +93,6 @@ int main(int argc, char *argv[])
                 n_args += 1;
             }
         }
-        section_info[pipes][2] = n_args; // end index of last process
         args[n_args] = NULL; // null ptr for end of args
 
         int req_children = pipes + 1;
@@ -102,13 +100,15 @@ int main(int argc, char *argv[])
         // set up pipes and input output fd's for each child
         section_info[0][3] = STDIN_FILENO;
         int pipe_fds[pipes*2];
-        for (int i = 0; i < req_children; i++) {
-            int fildes[2];
-            pipe(fildes);
-            section_info[i][4] = fildes[1];
-            section_info[i + 1][3] = fildes[0];
-            pipe_fds[i] = fildes[0];
-            pipe_fds[i*2] = fildes[1];
+        if (pipes > 0) {
+            for (int i = 0; i < req_children; i++) {
+                int fildes[2];
+                pipe(fildes);
+                section_info[i][4] = fildes[1];
+                section_info[i + 1][3] = fildes[0];
+                pipe_fds[i] = fildes[0];
+                pipe_fds[i*2] = fildes[1];
+            }
         }
         section_info[pipes][4] = STDOUT_FILENO;
   
@@ -128,8 +128,8 @@ int main(int argc, char *argv[])
             pid_t child = fork();
             children += 1;
             
-            section_info[i][0] = child;
-            si[i][0] = child;
+            // section_info[i][0] = child;
+            // si[i][0] = child;
 
             // // print si
             // for (int i = 0; i <  req_children; i++) 
@@ -199,8 +199,10 @@ int main(int argc, char *argv[])
         }
 
         //close any pipe fd's
-        for(int i = 0; i < pipes*2; i++) {
-            close(pipe_fds[i]);
+        if (pipes > 0) {
+            for(int i = 0; i < pipes*2; i++) {
+                close(pipe_fds[i]);
+            }
         }
     }
     return 0;
