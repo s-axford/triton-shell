@@ -4,6 +4,7 @@
     Contains: 
     Cancellation
     History
+    Pipes
 */
 
 #include <sys/types.h>
@@ -41,6 +42,7 @@ int main(int argc, char *argv[])
     parent_pid = getpid();
     while (true)
     {
+        // buffer to store incoming command
         char *buf;
         size_t max_buf_size = 128;
 
@@ -52,33 +54,29 @@ int main(int argc, char *argv[])
 
         int buf_size = prompt_user(buf, max_buf_size);
 
-        char *c_buf;              // copy of buf that can be iterated through
-        c_buf = (char *)calloc(buf_size, sizeof(char));
-        if (c_buf == NULL)
-        {
-            err(-1, "Unable to allocate c_buffer");
-        }
-        memcpy(c_buf, buf, buf_size);
-
-        char *com = strcat(buf, "\n");
-        if (write(his_fd, com, buf_size + 1) == -1)
+        if (write(his_fd, buf, buf_size) == -1)
         {
             err(-1, "Write to ~/.triton_history failed\n");
         }
+        if (write(his_fd, "\n", 1) == -1)
+        {
+            err(-1, "Write newline to ~/.triton_history failed\n");
+        }
 
-        free(buf);
+        char *buf_p = buf;         // new pointer for free() since buf will change in strsep
 
-        char *c_buf_p = c_buf;
-        char *args[max_num_args];       // will store all argument strings
+        char *args[max_num_args];       // array of command line arguments
+        
+        // section information data structure will be used to connect pipes
         int si_rows = 3;
         int section_info[max_num_args][si_rows]; // will store start index and pipe fd's
                                         // [0] = start index, [1] = input [2] output
         int n_args = 0;                 // total number of arguments - pipes + null terminator
         int pipes = 0;                  // number of "|" chars
         section_info[0][0] = n_args; // start of first command
-        while (c_buf != NULL && n_args < max_num_args - 1)
+        while (buf != NULL && n_args < max_num_args - 1)
         {
-            char *arg = strsep(&c_buf, &delim);
+            char *arg = strsep(&buf, &delim);
             if (strcmp(arg, "|") == 0) // pipe found
             {
                 args[n_args] = NULL; // swap '|' for NULL (to end execvp)
@@ -99,6 +97,8 @@ int main(int argc, char *argv[])
         // set up pipes and input output fd's for each child
         section_info[0][1] = STDIN_FILENO;
         int pipe_fds[pipes*2];
+
+        // if cli pipes were found, create pipes and store fd's in section_info
         if (pipes > 0) {
             for (int i = 0; i < req_children; i++) {
                 int fildes[2];
@@ -111,26 +111,11 @@ int main(int argc, char *argv[])
         }
         section_info[pipes][2] = STDOUT_FILENO;
   
-        // save secton info to memory so it may be shared by children
-        int *si[req_children];
-        for (int i = 0; i < req_children; i++)
-            si[i] = (int *)malloc(si_rows * sizeof(int)); 
-    
-        // copy data from section_info to si
-        for (int i = 0; i <  req_children; i++) 
-        for (int j = 0; j < si_rows; j++) 
-            si[i][j] = section_info[i][j]; // or *(*(arr+i)+j)
-
         int current_child = 0;
+        int child_pids[req_children];
         for (int i = 0; i < req_children; i++)
         {   
             pid_t child = fork();
-            children += 1;
-
-            // // print si
-            // for (int i = 0; i <  req_children; i++) 
-            // for (int j = 0; j < si_rows; j++)
-            //     printf("si[%i][%i]: %d \n", i, j, si[i][j]);
 
             switch (child)
             {
@@ -139,6 +124,9 @@ int main(int argc, char *argv[])
 
             case 0:
             {
+                // this will swap input / output to the proper pipe if relevant
+                dup2(section_info[current_child][1], STDIN_FILENO);
+                dup2(section_info[current_child][2], STDOUT_FILENO);
                 int s_index = section_info[current_child][0];
                 // history command
                 if (strcmp(args[s_index], "history") == 0)
@@ -167,6 +155,7 @@ int main(int argc, char *argv[])
 
             default:
             {
+                children += 1;
                 int status;
                 if (waitpid(child, &status, 0) == -1)
                 {
@@ -174,32 +163,28 @@ int main(int argc, char *argv[])
                 }
                 if (WIFEXITED(status))
                 {
-                    printf("program exited with code: %d\n", WEXITSTATUS(status));
+                    printf("program %i exited with code: %d\n", child, WEXITSTATUS(status));
                     children -= 1;
                 }
                 if (WIFSIGNALED(status))
                 {
-                    printf("\nprocess terminated\n");
+                    printf("\nprocess terminated with SIGINT\n");
                     children -= 1;
+                }
+                // close pipes
+                if (section_info[current_child][1] != 0) {
+                    close(section_info[current_child][1]);
+                }
+                if (section_info[current_child][2] != 1) {
+                    close(section_info[current_child][2]);
                 }
                 break;
             }
             }
             current_child += 1;
         }
-        // free memory
-        free(c_buf_p);
-        for (int i = 0; i < req_children; i++)
-        {
-            free(si[i]);
-        }
-
-        //close any pipe fd's
-        if (pipes > 0) {
-            for(int i = 0; i < pipes*2; i++) {
-                close(pipe_fds[i]);
-            }
-        }
+        // free buffer
+        free(buf_p);
     }
     return 0;
 }
