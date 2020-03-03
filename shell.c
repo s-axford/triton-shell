@@ -5,6 +5,7 @@
     Cancellation
     History
     Pipes
+    Redirection
 */
 
 #include <sys/types.h>
@@ -68,12 +69,21 @@ int main(int argc, char *argv[])
         char *args[max_num_args];       // array of command line arguments
         
         // section information data structure will be used to connect pipes
-        int si_rows = 3;
+        int si_rows = 4;
         int section_info[max_num_args][si_rows]; // will store start index and pipe fd's
-                                        // [0] = start index, [1] = input [2] output
+                                        // [0] = start index, [1] = input, [2] output, [3] error
         int n_args = 0;                 // total number of arguments - pipes + null terminator
         int pipes = 0;                  // number of "|" chars
+        int err_fd = STDERR_FILENO;
+        int out_fd = STDOUT_FILENO;
+        int in_fd = STDIN_FILENO;
         section_info[0][0] = n_args; // start of first command
+        for(int i = 0; i < max_num_args; i++)
+        {
+            section_info[i][1] = in_fd;
+            section_info[i][2] = out_fd;
+            section_info[i][3] = err_fd;
+        }
         while (buf != NULL && n_args < max_num_args - 1)
         {
             char *arg = strsep(&buf, &delim);
@@ -83,6 +93,26 @@ int main(int argc, char *argv[])
                 n_args += 1;
                 pipes += 1; // there is a new section
                 section_info[pipes][0] = n_args; // next arg is the start of new section
+            }
+            else if (strcmp(arg, ">") == 0) // output redirection found
+            {
+                char *arg = strsep(&buf, &delim);
+                out_fd = open(arg, O_RDWR | O_CREAT | O_APPEND, 0640);
+                if (out_fd == -1)
+                {
+                    err(-1, "failed to opened or create output log file\n");
+                }
+                section_info[pipes][2] = out_fd; // output is changed to new file
+            }
+            else if (strcmp(arg, "2>") == 0) // error redirection found
+            {
+                char *arg = strsep(&buf, &delim);
+                err_fd = open(arg, O_RDWR | O_CREAT | O_APPEND, 0640);
+                if (err_fd == -1)
+                {
+                    err(-1, "failed to opened or create error log file\n");
+                }
+                section_info[pipes][3] = err_fd; // error is changed to new file
             }
             else
             {
@@ -95,7 +125,6 @@ int main(int argc, char *argv[])
         int req_children = pipes + 1;
 
         // set up pipes and input output fd's for each child
-        section_info[0][1] = STDIN_FILENO;
         int pipe_fds[pipes*2];
 
         // if cli pipes were found, create pipes and store fd's in section_info
@@ -108,9 +137,7 @@ int main(int argc, char *argv[])
                 pipe_fds[i] = fildes[0];
                 pipe_fds[i*2] = fildes[1];
             }
-        }
-        section_info[pipes][2] = STDOUT_FILENO;
-  
+        }  
         int current_child = 0;
         int child_pids[req_children];
         for (int i = 0; i < req_children; i++)
@@ -127,6 +154,7 @@ int main(int argc, char *argv[])
                 // this will swap input / output to the proper pipe if relevant
                 dup2(section_info[current_child][1], STDIN_FILENO);
                 dup2(section_info[current_child][2], STDOUT_FILENO);
+                dup2(section_info[current_child][3], STDERR_FILENO);
                 int s_index = section_info[current_child][0];
                 // history command
                 if (strcmp(args[s_index], "history") == 0)
