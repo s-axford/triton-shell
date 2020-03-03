@@ -70,13 +70,12 @@ int main(int argc, char *argv[])
 
         char *c_buf_p = c_buf;
         char *args[max_num_args];       // will store all argument strings
-        int si_rows = 5;
-        int section_info[max_num_args][si_rows]; // will store start and end indexes of args and relevant pid
-                                        // [0] = pid, [1] = start index, [2] end index
-                                        // [3] = input [4] output
+        int si_rows = 3;
+        int section_info[max_num_args][si_rows]; // will store start index and pipe fd's
+                                        // [0] = start index, [1] = input [2] output
         int n_args = 0;                 // total number of arguments - pipes + null terminator
         int pipes = 0;                  // number of "|" chars
-        section_info[0][1] = n_args; // start of first command
+        section_info[0][0] = n_args; // start of first command
         while (c_buf != NULL && n_args < max_num_args - 1)
         {
             char *arg = strsep(&c_buf, &delim);
@@ -85,7 +84,7 @@ int main(int argc, char *argv[])
                 args[n_args] = NULL; // swap '|' for NULL (to end execvp)
                 n_args += 1;
                 pipes += 1; // there is a new section
-                section_info[pipes][1] = n_args; // next arg is the start of new section
+                section_info[pipes][0] = n_args; // next arg is the start of new section
             }
             else
             {
@@ -98,19 +97,19 @@ int main(int argc, char *argv[])
         int req_children = pipes + 1;
 
         // set up pipes and input output fd's for each child
-        section_info[0][3] = STDIN_FILENO;
+        section_info[0][1] = STDIN_FILENO;
         int pipe_fds[pipes*2];
         if (pipes > 0) {
             for (int i = 0; i < req_children; i++) {
                 int fildes[2];
                 pipe(fildes);
-                section_info[i][4] = fildes[1];
-                section_info[i + 1][3] = fildes[0];
+                section_info[i][2] = fildes[1];
+                section_info[i + 1][1] = fildes[0];
                 pipe_fds[i] = fildes[0];
                 pipe_fds[i*2] = fildes[1];
             }
         }
-        section_info[pipes][4] = STDOUT_FILENO;
+        section_info[pipes][2] = STDOUT_FILENO;
   
         // save secton info to memory so it may be shared by children
         int *si[req_children];
@@ -127,9 +126,6 @@ int main(int argc, char *argv[])
         {   
             pid_t child = fork();
             children += 1;
-            
-            // section_info[i][0] = child;
-            // si[i][0] = child;
 
             // // print si
             // for (int i = 0; i <  req_children; i++) 
@@ -143,7 +139,7 @@ int main(int argc, char *argv[])
 
             case 0:
             {
-                int s_index = section_info[current_child][1];
+                int s_index = section_info[current_child][0];
                 // history command
                 if (strcmp(args[s_index], "history") == 0)
                 {
