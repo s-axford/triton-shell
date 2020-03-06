@@ -32,8 +32,7 @@ int main(int argc, char *argv[])
 
     // history file setup
     char *history_path = strcat(getenv("HOME"), "/.triton_history");
-    truncate(history_path, 0);
-    int his_fd = open(history_path, O_RDWR | O_CREAT | O_APPEND, 0640);
+    int his_fd = open(history_path, O_RDWR | O_CREAT | O_TRUNC | O_APPEND, 0640);
     if (his_fd == -1)
     {
         err(-1, "failed to opened or create ~/.triton_history\n");
